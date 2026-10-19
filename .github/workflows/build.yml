@@ -35,19 +35,33 @@ jobs:
           path: build/libs/*.jar
           if-no-files-found: error
 
-      # Keeps the latest build log readable with plain git (branch "ci-logs").
+      # Rolling "latest" release with the jar, so there's always a download page.
+      - name: Publish latest release
+        if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest -y --cleanup-tag || true
+          gh release create latest build/libs/*.jar \
+            --title "Latest build (NeoForge 1.21.1)" \
+            --notes "Automatic build of ${{ github.sha }}. Drop the jar into your mods folder next to Accessories." \
+            --target "${{ github.sha }}"
+
+      # Keeps the latest build log (and jar) readable with plain git (branch "ci-logs").
       - name: Publish build log
         if: always() && github.event_name != 'pull_request'
         run: |
           [ -f build.log ] || echo "no build log" > build.log
           cp build.log /tmp/build.log
+          mkdir -p /tmp/jars && cp build/libs/*.jar /tmp/jars/ 2>/dev/null || true
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
           git checkout --orphan ci-logs
           git rm -rfq --cached .
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp /tmp/build.log build.log
+          cp /tmp/jars/*.jar . 2>/dev/null || true
           echo "${{ github.sha }} ${{ job.status }}" > status.txt
-          git add build.log status.txt
+          git add -A
           git commit -qm "Build log for ${{ github.sha }}"
           git push -f origin ci-logs
