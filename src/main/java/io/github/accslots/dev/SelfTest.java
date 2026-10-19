@@ -46,7 +46,7 @@ public final class SelfTest {
         }
     }
 
-    private static void run(MinecraftServer server) {
+    private static void run(MinecraftServer server) throws Exception {
         switch (step) {
             case 0 -> {
                 if (tick < 20) return;
