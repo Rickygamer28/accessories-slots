@@ -4,7 +4,10 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.world.level.storage.LevelResource;
 
 import java.io.IOException;
@@ -18,6 +21,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
@@ -32,13 +36,13 @@ import java.util.stream.Stream;
  *     data/accslots/accessories/slot/<name>.json           (slots created with /accslots create)
  *     data/<ns>/tags/item/<slot>.json                      (items allowed with /accslots allow)
  *
- * The pack is picked up the next time the world/server starts. A live /reload is deliberately not
- * triggered: when a player's set of bound slots changes while they're online, Accessories rebuilds
- * their slot containers, which can lose equipped items.
+ * After every change the datapacks are reloaded so it applies straight away (see {@link #reloadNow}).
  */
 public final class GeneratedPack {
 
     public static final String PACK_FOLDER = "accslots_generated";
+    /** World datapacks are registered with the id "file/<folder name>". */
+    public static final String PACK_ID = "file/" + PACK_FOLDER;
     private static final String STATE_FILE = "accslots_state.json";
     private static final int PACK_FORMAT = 48; // 1.21 / 1.21.1 data packs
 
@@ -174,6 +178,31 @@ public final class GeneratedPack {
         try (Writer writer = Files.newBufferedWriter(root.resolve(STATE_FILE), StandardCharsets.UTF_8)) {
             GSON.toJson(state, writer);
         }
+    }
+
+    /**
+     * Reloads datapacks (like /reload), making sure our pack is enabled, then tells the source when done.
+     * Safe for online players thanks to AccessoriesHolderImplMixin keeping their existing slot containers.
+     */
+    public static void reloadNow(CommandSourceStack source, Supplier<Component> onDone) {
+        MinecraftServer server = source.getServer();
+        PackRepository repository = server.getPackRepository();
+        repository.reload(); // picks up the pack folder if it was just created
+
+        List<String> selected = new ArrayList<>(repository.getSelectedIds());
+        if (!selected.contains(PACK_ID) && repository.getAvailableIds().contains(PACK_ID)) selected.add(PACK_ID);
+
+        server.reloadResources(selected)
+                .thenRunAsync(() -> {
+                    // Newly bound slots start without the server-wide bonus; apply it now.
+                    SlotBonuses.syncGlobalAll(server);
+                    source.sendSuccess(onDone, true);
+                }, server)
+                .exceptionally(error -> {
+                    AccSlots.LOGGER.error("[accslots] Datapack reload failed", error);
+                    source.sendFailure(Component.literal("Reloading data failed - check the server log. Your change is saved and will apply on the next start."));
+                    return null;
+                });
     }
 
     public static boolean addTo(Map<String, ArrayList<String>> map, String key, String value) {

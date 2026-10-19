@@ -25,24 +25,26 @@ Examples:
 
 Per-player and server-wide bonuses stack. They're stored the same way Accessories resizes slots itself (attribute modifiers on the slot), so they're saved with the player and kept through death. If slots are removed, items that no longer fit are given back to the player.
 
-## Datapack commands (apply on the next world/server start)
+## Slot setup commands (also instant)
 
-Some changes have to go through Accessories' data-driven files: making a slot exist on an entity at all, creating a brand-new slot, or choosing which items fit. These commands write a datapack to `world/datapacks/accslots_generated/` that loads on the next start.
+These change which slots exist and what fits in them. Behind the scenes they write a small datapack to `world/datapacks/accslots_generated/` (so the changes are saved with the world) and reload data straight away.
 
 | Command | What it does |
 |---|---|
 | `/accslots enable <slot> [<entity_type>]` | Bind a slot to players (or another entity type). Use this for slots another mod registers but doesn't put on players. |
 | `/accslots disable <slot> [<entity_type>]` | Undo a binding made with `enable`. |
 | `/accslots create <name> [amount] [icon]` | Create a brand-new slot type and give it to players. Icon defaults to `accessories:gui/slot/empty`; any of the built-in `accessories:gui/slot/...` icons are suggested. |
-| `/accslots delete <name>` | Remove a slot made with `create`. |
+| `/accslots delete <name>` | Remove a slot made with `create`. Anything in it goes back to its owner. |
 | `/accslots allow <slot> item <item>` | Let an item (from any mod) be equipped in that slot. |
 | `/accslots allow <slot> tag <item_tag>` | Same, for a whole item tag. |
 | `/accslots disallow <slot> item\|tag <id>` | Undo an `allow`. |
-| `/accslots pending` | Show what's in the generated datapack. |
-
-Why a restart instead of `/reload`? When the set of slots on an online player changes, Accessories rebuilds that player's slot containers, which can lose equipped items. Restarting avoids that. (Singleplayer: Save & Quit, then reopen the world.)
+| `/accslots changes` | Show everything these commands have set up. |
 
 A created slot's label uses the translation key `accessories.slot.<name>`; add it in a resource pack's `en_us.json` to give it a nice name.
+
+### Reload safety fix
+
+Normally, when a reload changes which slots a player has, Accessories replaces all of that player's slot containers with empty ones, which can delete equipped accessories. This mod includes a small mixin that keeps existing containers and only adds the new ones, so slot changes apply safely while players are online. This also protects a regular `/reload`.
 
 ## Building
 

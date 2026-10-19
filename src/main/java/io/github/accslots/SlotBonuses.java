@@ -5,6 +5,7 @@ import io.wispforest.accessories.api.AccessoriesContainer;
 import io.wispforest.accessories.api.slot.ExtraSlotTypeProperties;
 import io.wispforest.accessories.api.slot.SlotType;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
@@ -77,6 +78,12 @@ public final class SlotBonuses {
         // markChanged() is called by Accessories inside add/remove; the container is resized and
         // synced to clients on the entity's next tick.
         return value;
+    }
+
+    /** Re-applies the saved server-wide bonuses to everyone online. */
+    public static void syncGlobalAll(MinecraftServer server) {
+        Map<String, Integer> bonuses = GlobalSlotData.get(server).bonuses();
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) syncGlobal(player, bonuses);
     }
 
     /** Brings a player's accslots:global modifiers in line with the saved server-wide bonuses. */

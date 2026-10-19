@@ -1,0 +1,13 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "io.github.accslots.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "AccessoriesCapabilityImplMixin",
+    "AccessoriesHolderImplMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

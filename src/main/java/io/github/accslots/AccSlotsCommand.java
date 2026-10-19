@@ -41,13 +41,14 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
  * /accslots - manage Accessories slots.
  *
- * Live (instant, no restart):
+ * Live (no reload needed):
  *   /accslots list [<entity>]
  *   /accslots add|remove <targets> <slot> [<amount>]
  *   /accslots set <targets> <slot> <amount>
@@ -57,13 +58,13 @@ import java.util.stream.Stream;
  *   /accslots global reset [<slot>]
  *   /accslots global list
  *
- * Datapack (applied on next world/server start):
+ * Datapack-backed (written to world/datapacks/accslots_generated, applied immediately with a data reload):
  *   /accslots enable|disable <slot> [<entity_type>]
  *   /accslots create <name> [<amount>] [<icon>]
  *   /accslots delete <name>
  *   /accslots allow|disallow <slot> item <item>
  *   /accslots allow|disallow <slot> tag <item_tag>
- *   /accslots pending
+ *   /accslots changes
  */
 public final class AccSlotsCommand {
 
@@ -81,7 +82,7 @@ public final class AccSlotsCommand {
     private static final DynamicCommandExceptionType NOT_RESIZABLE = new DynamicCommandExceptionType(
             slot -> Component.literal("The slot '" + slot + "' doesn't allow resizing (locked by the mod that adds it)."));
     private static final DynamicCommandExceptionType NOT_BOUND = new DynamicCommandExceptionType(
-            slot -> Component.literal("None of the targets have the '" + slot + "' slot. It exists, but isn't bound to that entity type - run /accslots enable " + slot + " and restart."));
+            slot -> Component.literal("None of the targets have the '" + slot + "' slot. It exists, but isn't bound to that entity type - run /accslots enable " + slot + "."));
     private static final SimpleCommandExceptionType NO_LIVING_TARGETS = new SimpleCommandExceptionType(
             Component.literal("None of the targets can have accessories."));
     private static final DynamicCommandExceptionType BAD_NAME = new DynamicCommandExceptionType(
@@ -161,7 +162,7 @@ public final class AccSlotsCommand {
                         .then(Commands.argument("slot", ResourceLocationArgument.id()).suggests(GLOBAL_SLOTS)
                                 .executes(ctx -> globalReset(ctx.getSource(), slot(ctx))))));
 
-        // --- datapack-backed (restart to apply) ---------------------------------------------
+        // --- datapack-backed (applied with a reload) ---------------------------------------------
         root.then(Commands.literal("enable")
                 .then(slotArg(ALL_SLOTS)
                         .executes(ctx -> enable(ctx.getSource(), slot(ctx), PLAYER_TYPE, true))
@@ -191,7 +192,7 @@ public final class AccSlotsCommand {
         root.then(Commands.literal("allow").then(allowArgs(true)));
         root.then(Commands.literal("disallow").then(allowArgs(false)));
 
-        root.then(Commands.literal("pending").executes(ctx -> pending(ctx.getSource())));
+        root.then(Commands.literal("changes").executes(ctx -> changes(ctx.getSource())));
 
         dispatcher.register(root);
     }
@@ -426,7 +427,7 @@ public final class AccSlotsCommand {
         boolean boundToPlayers = EntitySlotLoader.getEntitySlots(source.getLevel(), EntityType.PLAYER).containsKey(slot);
         if (!boundToPlayers) {
             source.sendSystemMessage(Component.literal("Note: players don't have the '" + slot
-                    + "' slot yet. Run /accslots enable " + slot + " and restart for this to take effect.").withStyle(ChatFormatting.YELLOW));
+                    + "' slot yet. Run /accslots enable " + slot + " and it will apply.").withStyle(ChatFormatting.YELLOW));
         }
         return 1;
     }
@@ -487,7 +488,7 @@ public final class AccSlotsCommand {
             }
             if (!GeneratedPack.addTo(state.bindings, entityType, slot)) {
                 source.sendSuccess(() -> Component.literal("").append(slotName(slot))
-                        .append(" is already queued for " + entityType + " - restart to apply."), false);
+                        .append(" is already enabled for " + entityType + " by /accslots - run /reload if it isn't showing."), false);
                 return 0;
             }
         } else {
@@ -498,10 +499,8 @@ public final class AccSlotsCommand {
             }
         }
 
-        saveOrThrow(server, state);
-        String verb = enable ? "will be added to " : "will be removed from ";
-        source.sendSuccess(() -> Component.literal("").append(slotName(slot)).append(" " + verb + entityType + ". ")
-                .append(restartNote()), true);
+        String verb = enable ? " added to " : " removed from ";
+        saveAndApply(source, state, () -> Component.literal("").append(slotName(slot)).append(verb + entityType + "."));
         return 1;
     }
 
@@ -514,14 +513,12 @@ public final class AccSlotsCommand {
 
         state.created.put(name, new GeneratedPack.CreatedSlot(amount, icon.toString(), CREATED_SLOT_ORDER));
         GeneratedPack.addTo(state.bindings, PLAYER_TYPE, name);
-        saveOrThrow(server, state);
-
-        source.sendSuccess(() -> Component.literal("Created slot ").append(slotName(name))
-                .append(" with " + amount + " slot(s) for players. ").append(restartNote())
+        saveAndApply(source, state, () -> Component.literal("Created slot ").append(slotName(name))
+                .append(" with " + amount + " slot(s) for players.")
                 .append(Component.literal("\nItems go in it if they're in the item tag #accessories:" + name
                         + " - add some with /accslots allow " + name + " item <item>.").withStyle(ChatFormatting.GRAY))
                 .append(Component.literal("\nIts label uses the translation key accessories.slot." + name
-                        + " (add it in a resource pack to give it a nice name).").withStyle(ChatFormatting.GRAY)), true);
+                        + " (add it in a resource pack to give it a nice name).").withStyle(ChatFormatting.GRAY)));
         return 1;
     }
 
@@ -536,10 +533,7 @@ public final class AccSlotsCommand {
         state.bindings.values().forEach(list -> list.remove(name));
         state.bindings.values().removeIf(List::isEmpty);
         state.allowed.remove("accessories:" + name);
-        saveOrThrow(server, state);
-
-        source.sendSuccess(() -> Component.literal("Slot '" + name + "' will be removed. Anything in it is given back to the player. ")
-                .append(restartNote()), true);
+        saveAndApply(source, state, () -> Component.literal("Slot '" + name + "' removed. Anything that was in it was given back to its owner."));
         return 1;
     }
 
@@ -556,10 +550,8 @@ public final class AccSlotsCommand {
                     : value + " wasn't added to '" + slot + "' by /accslots."));
             return 0;
         }
-        saveOrThrow(server, state);
-
-        source.sendSuccess(() -> Component.literal(value + (allow ? " can now go in " : " can no longer go in "))
-                .append(slotName(slot)).append(" (tag #" + tag + "). ").append(restartNote()), true);
+        saveAndApply(source, state, () -> Component.literal(value + (allow ? " can now go in " : " can no longer go in "))
+                .append(slotName(slot)).append(" (tag #" + tag + ")."));
         return 1;
     }
 
@@ -576,10 +568,10 @@ public final class AccSlotsCommand {
         throw UNKNOWN_SLOT.create(slot);
     }
 
-    private static int pending(CommandSourceStack source) {
+    private static int changes(CommandSourceStack source) {
         GeneratedPack.State state = GeneratedPack.load(source.getServer());
         if (state.isEmpty()) {
-            source.sendSuccess(() -> Component.literal("Nothing in the accslots datapack yet."), false);
+            source.sendSuccess(() -> Component.literal("/accslots hasn't enabled, created or allowed anything yet."), false);
             return 0;
         }
 
@@ -590,7 +582,6 @@ public final class AccSlotsCommand {
                 .append(Component.literal(String.join(", ", slots)).withStyle(ChatFormatting.YELLOW)));
         state.allowed.forEach((tag, values) -> msg.append("\n #" + tag + ": ")
                 .append(Component.literal(String.join(", ", values)).withStyle(ChatFormatting.GRAY)));
-        msg.append("\n").append(restartNote());
 
         source.sendSuccess(() -> msg, false);
         return 1;
@@ -629,8 +620,10 @@ public final class AccSlotsCommand {
         return value > 0 ? "+" + value : String.valueOf(value);
     }
 
-    private static MutableComponent restartNote() {
-        return Component.literal("Restart the server (singleplayer: Save & Quit, then reopen the world) to apply.")
-                .withStyle(ChatFormatting.LIGHT_PURPLE);
+    /** Writes the datapack, then reloads data so the change applies right away. */
+    private static void saveAndApply(CommandSourceStack source, GeneratedPack.State state, Supplier<Component> done) throws CommandSyntaxException {
+        saveOrThrow(source.getServer(), state);
+        source.sendSystemMessage(Component.literal("Applying...").withStyle(ChatFormatting.GRAY));
+        GeneratedPack.reloadNow(source, done);
     }
 }

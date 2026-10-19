@@ -15,6 +15,9 @@ Only needed on the server (and in singleplayer); clients without it can still jo
 # Server-side addon: don't require clients to have it.
 displayTest="IGNORE_ALL_VERSION"
 
+[[mixins]]
+config="accslots.mixins.json"
+
 [[dependencies.${mod_id}]]
     modId="neoforge"
     type="required"
