@@ -41,7 +41,6 @@ neoForge {
             server()
             programArgument '--nogui'
             systemProperty 'accslots.selftest', 'true'
-            systemProperty 'accslots.selftest.nofix', 'true'
             gameDirectory = project.file('run-selftest')
         }
     }
