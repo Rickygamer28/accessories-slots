@@ -1,0 +1,37 @@
+modLoader="javafml"
+loaderVersion="${loader_version_range}"
+license="${mod_license}"
+
+[[mods]]
+modId="${mod_id}"
+version="${mod_version}"
+displayName="${mod_name}"
+authors="Rickygamer28"
+description='''
+Addon for Accessories that adds the /accslots command: give players extra accessory slots
+(per player or server-wide), bind slots from other mods to players, and create brand-new slots.
+Only needed on the server (and in singleplayer); clients without it can still join.
+'''
+# Server-side addon: don't require clients to have it.
+displayTest="IGNORE_ALL_VERSION"
+
+[[dependencies.${mod_id}]]
+    modId="neoforge"
+    type="required"
+    versionRange="[21.1.205,)"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    type="required"
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+[[dependencies.${mod_id}]]
+    modId="accessories"
+    type="required"
+    versionRange="[1.1.0-beta.40,)"
+    ordering="AFTER"
+    side="BOTH"
