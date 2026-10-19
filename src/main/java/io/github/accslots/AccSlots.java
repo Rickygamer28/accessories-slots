@@ -22,6 +22,15 @@ public final class AccSlots {
         NeoForge.EVENT_BUS.addListener(AccSlots::onRegisterCommands);
         NeoForge.EVENT_BUS.addListener(AccSlots::onLogin);
         NeoForge.EVENT_BUS.addListener(AccSlots::onRespawn);
+
+        // Development-only end-to-end test (the "selftest" Gradle run). The class isn't in the released jar.
+        if (Boolean.getBoolean("accslots.selftest")) {
+            try {
+                Class.forName("io.github.accslots.dev.SelfTest").getMethod("register").invoke(null);
+            } catch (ReflectiveOperationException e) {
+                LOGGER.error("[accslots] Could not start self-test", e);
+            }
+        }
     }
 
     public static ResourceLocation id(String path) {

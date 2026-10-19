@@ -28,6 +28,16 @@ jobs:
           set -o pipefail
           ./gradlew build --no-configuration-cache --stacktrace 2>&1 | tee build.log
 
+      # Boots a real NeoForge server with Accessories and runs src/main/java/io/github/accslots/dev/SelfTest.
+      - name: Self-test on a real server
+        run: |
+          mkdir -p run-selftest
+          echo "eula=true" > run-selftest/eula.txt
+          printf 'online-mode=false\nlevel-type=minecraft\\:flat\ngenerate-structures=false\nspawn-protection=0\n' > run-selftest/server.properties
+          set -o pipefail
+          timeout 900 ./gradlew runSelftest --no-configuration-cache 2>&1 | tee selftest.log
+          grep -q "ACCSLOTS SELFTEST PASSED" selftest.log
+
       - name: Upload mod jar
         uses: actions/upload-artifact@v4
         with:
@@ -53,6 +63,7 @@ jobs:
         run: |
           [ -f build.log ] || echo "no build log" > build.log
           cp build.log /tmp/build.log
+          [ -f selftest.log ] && cp selftest.log /tmp/selftest.log || true
           mkdir -p /tmp/jars && cp build/libs/*.jar /tmp/jars/ 2>/dev/null || true
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
@@ -61,6 +72,7 @@ jobs:
           find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
           cp /tmp/build.log build.log
           cp /tmp/jars/*.jar . 2>/dev/null || true
+          cp /tmp/selftest.log . 2>/dev/null || true
           echo "${{ github.sha }} ${{ job.status }}" > status.txt
           git add -A
           git commit -qm "Build log for ${{ github.sha }}"
