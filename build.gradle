@@ -9,6 +9,8 @@ group = mod_group_id
 repositories {
     // Accessories + owo-lib
     maven { url "https://maven.wispforest.io/releases" }
+    // Forgified Fabric API (pulled in by Accessories / owo-lib on NeoForge)
+    maven { url "https://maven.su5ed.dev/releases" }
     mavenCentral()
 }
 
