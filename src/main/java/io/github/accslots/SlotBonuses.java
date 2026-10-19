@@ -4,13 +4,18 @@ import io.wispforest.accessories.api.AccessoriesCapability;
 import io.wispforest.accessories.api.AccessoriesContainer;
 import io.wispforest.accessories.api.slot.ExtraSlotTypeProperties;
 import io.wispforest.accessories.api.slot.SlotType;
+import io.wispforest.accessories.data.EntitySlotLoader;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.Container;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
+import net.minecraft.world.item.ItemStack;
+import net.neoforged.neoforge.items.ItemHandlerHelper;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -59,16 +64,29 @@ public final class SlotBonuses {
         return Math.max(0, (int) Math.round(size));
     }
 
+    /** What a bonus change did: the bonus actually applied and how many items were handed back. */
+    public record Change(int applied, int returnedItems) {}
+
     /**
      * Sets one of our bonus modifiers, clamped so that base + our two bonuses never goes below zero
-     * (a negative container size would crash Accessories). Returns the value actually applied.
+     * (a negative container size would crash Accessories).
+     *
+     * If the slot shrinks, anything in the slots that disappear (accessory and cosmetic) is taken out first and
+     * given to the entity: into the player's inventory, or dropped at their feet if it's full.
      */
-    public static int setBonus(AccessoriesContainer container, ResourceLocation id, int desired) {
+    public static Change setBonus(AccessoriesContainer container, ResourceLocation id, int desired) {
         ResourceLocation otherId = id.equals(PLAYER_ID) ? GLOBAL_ID : PLAYER_ID;
         int min = -(baseAmount(container) + bonus(container, otherId));
         int value = Math.max(desired, min);
+        int current = bonus(container, id);
 
-        if (bonus(container, id) == value && (value != 0) == container.hasModifier(id)) return value;
+        if (current == value && (value != 0) == container.hasModifier(id)) return new Change(value, 0);
+
+        int returned = 0;
+        int newSize = Math.max(0, expectedSize(container) - current + value);
+        if (newSize < container.getAccessories().getContainerSize()) {
+            returned = returnItemsFrom(container, newSize);
+        }
 
         // removeModifier first: adding a modifier with an existing id would double-count it.
         container.removeModifier(id);
@@ -77,20 +95,69 @@ public final class SlotBonuses {
         }
         // markChanged() is called by Accessories inside add/remove; the container is resized and
         // synced to clients on the entity's next tick.
-        return value;
+        return new Change(value, returned);
     }
 
-    /** Re-applies the saved server-wide bonuses to everyone online. */
-    public static void syncGlobalAll(MinecraftServer server) {
+    /**
+     * Takes every item out of the container's slots from {@code fromIndex} upwards (accessories and cosmetics)
+     * and gives them to the container's owner. Emptying the slots goes through Accessories' normal change
+     * detection on the next tick, so unequip effects and item attribute modifiers are removed properly.
+     */
+    public static int returnItemsFrom(AccessoriesContainer container, int fromIndex) {
+        LivingEntity owner = container.capability().entity();
+        int returned = 0;
+        for (Container inventory : List.of(container.getAccessories(), container.getCosmeticAccessories())) {
+            for (int i = Math.max(0, fromIndex); i < inventory.getContainerSize(); i++) {
+                ItemStack stack = inventory.getItem(i);
+                if (stack.isEmpty()) continue;
+                inventory.setItem(i, ItemStack.EMPTY);
+                give(owner, stack);
+                returned++;
+            }
+        }
+        return returned;
+    }
+
+    /** Puts the stack in the player's inventory (dropping it at their feet if full), or drops it for other entities. */
+    public static void give(LivingEntity owner, ItemStack stack) {
+        if (owner instanceof ServerPlayer player) {
+            ItemHandlerHelper.giveItemToPlayer(player, stack);
+        } else {
+            owner.spawnAtLocation(stack);
+        }
+    }
+
+    /**
+     * After a reload removed a slot type from an entity, Accessories keeps the old container around but no longer
+     * uses it. Give back anything still sitting in such containers. Returns the number of item stacks returned.
+     */
+    public static int returnItemsFromRemovedSlots(LivingEntity entity) {
+        AccessoriesCapability capability = AccessoriesCapability.get(entity);
+        if (capability == null || !(capability.getHolder() instanceof HolderAccess holder)) return 0;
+
+        Map<String, SlotType> valid = EntitySlotLoader.getEntitySlots(entity);
+        int returned = 0;
+        for (var entry : holder.accslots$allContainers().entrySet()) {
+            if (valid.containsKey(entry.getKey())) continue;
+            returned += returnItemsFrom(entry.getValue(), 0);
+        }
+        return returned;
+    }
+
+    /** Re-applies the saved server-wide bonuses to everyone online. Returns how many items were handed back. */
+    public static int syncGlobalAll(MinecraftServer server) {
         Map<String, Integer> bonuses = GlobalSlotData.get(server).bonuses();
-        for (ServerPlayer player : server.getPlayerList().getPlayers()) syncGlobal(player, bonuses);
+        int returned = 0;
+        for (ServerPlayer player : server.getPlayerList().getPlayers()) returned += syncGlobal(player, bonuses);
+        return returned;
     }
 
-    /** Brings a player's accslots:global modifiers in line with the saved server-wide bonuses. */
-    public static void syncGlobal(ServerPlayer player, Map<String, Integer> globalBonuses) {
+    /** Brings a player's accslots:global modifiers in line with the saved server-wide bonuses. Returns items handed back. */
+    public static int syncGlobal(ServerPlayer player, Map<String, Integer> globalBonuses) {
         AccessoriesCapability capability = AccessoriesCapability.get(player);
-        if (capability == null) return;
+        if (capability == null) return 0;
 
+        int returned = 0;
         for (var entry : capability.getContainers().entrySet()) {
             String slot = entry.getKey();
             AccessoriesContainer container = entry.getValue();
@@ -99,7 +166,8 @@ public final class SlotBonuses {
             if (desired != 0 && !canResize(slot)) continue;
             if (desired == 0 && !container.hasModifier(GLOBAL_ID)) continue;
 
-            setBonus(container, GLOBAL_ID, desired);
+            returned += setBonus(container, GLOBAL_ID, desired).returnedItems();
         }
+        return returned;
     }
 }

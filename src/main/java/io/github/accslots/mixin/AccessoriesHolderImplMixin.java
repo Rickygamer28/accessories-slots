@@ -1,6 +1,7 @@
 package io.github.accslots.mixin;
 
 import io.github.accslots.ContainerRebuild;
+import io.github.accslots.HolderAccess;
 import io.wispforest.accessories.api.AccessoriesContainer;
 import io.wispforest.accessories.api.slot.SlotType;
 import io.wispforest.accessories.impl.AccessoriesHolderImpl;
@@ -23,9 +24,14 @@ import java.util.function.BiConsumer;
  * alone too, so Accessories' own reload handling can give their items back to the player.
  */
 @Mixin(value = AccessoriesHolderImpl.class, remap = false)
-public abstract class AccessoriesHolderImplMixin {
+public abstract class AccessoriesHolderImplMixin implements HolderAccess {
 
     @Shadow @Final private Map<String, AccessoriesContainer> slotContainers;
+
+    @Override
+    public Map<String, AccessoriesContainer> accslots$allContainers() {
+        return this.slotContainers;
+    }
 
     @Redirect(
             method = "init",

@@ -103,13 +103,55 @@ public final class SelfTest {
                 check(ring.getSize() == base + 3, "ring size kept (" + ring.getSize() + ")");
                 check(ring.getAccessories().getItem(base + 1).is(Items.DIAMOND), "diamond survived the reload");
 
+                // --- Shrinking a slot gives the items in the removed slots back to the player.
+                ring.getAccessories().setItem(base + 2, new ItemStack(Items.EMERALD));
+                ring.getCosmeticAccessories().setItem(base + 2, new ItemStack(Items.GOLD_INGOT));
+                var change = SlotBonuses.setBonus(ring, SlotBonuses.PLAYER_ID, 0); // base+3 -> base+1
+                cap.updateContainers();
+                check(ring.getSize() == base + 1, "ring shrank to base+1 (" + ring.getSize() + ")");
+                check(change.returnedItems() == 3, "3 items returned from removed ring slots (" + change.returnedItems() + ")");
+                check(player.getInventory().countItem(Items.DIAMOND) == 1, "diamond is in the player's inventory");
+                check(player.getInventory().countItem(Items.EMERALD) == 1, "emerald is in the player's inventory");
+                check(player.getInventory().countItem(Items.GOLD_INGOT) == 1, "cosmetic gold ingot is in the player's inventory");
+
                 int result = server.getCommands().getDispatcher()
                         .execute("accslots allow selftest_slot item minecraft:stick", server.createCommandSourceStack());
                 check(result == 1, "/accslots allow returned 1");
+                reloadWaitStart = tick;
+                step = 3;
+            }
+            case 3 -> {
+                if (tick - reloadWaitStart < 40) return; // let the allow reload finish
+                AccessoriesContainer created = AccessoriesCapability.get(player).getContainers().get("selftest_slot");
+                check(created != null, "created slot still there before delete");
+                created.getAccessories().setItem(0, new ItemStack(Items.STICK));
+
+                // --- Deleting a whole slot type gives its items back too.
+                int result = server.getCommands().getDispatcher()
+                        .execute("accslots delete selftest_slot", server.createCommandSourceStack());
+                check(result == 1, "/accslots delete returned 1");
+                reloadWaitStart = tick;
+                step = 4;
+            }
+            case 4 -> {
+                if (SlotTypeLoader.INSTANCE.getSlotTypes(false).containsKey("selftest_slot")) {
+                    check(tick - reloadWaitStart < 20 * 60, "delete reload finished within 60s");
+                    return;
+                }
+                AccessoriesCapability cap = AccessoriesCapability.get(player);
+                check(!cap.getContainers().containsKey("selftest_slot"), "deleted slot is gone from the player");
+
+                // Same call the reload callback makes for every online player (this test player isn't in the player list).
+                int returned = SlotBonuses.returnItemsFromRemovedSlots(player);
+                check(returned == 1, "1 item returned from the deleted slot (" + returned + ")");
+                check(player.getInventory().countItem(Items.STICK) == 1, "stick is in the player's inventory");
+                check(SlotBonuses.returnItemsFromRemovedSlots(player) == 0, "nothing returned twice");
+                check(cap.getContainers().get("ring").getSize() == SlotBonuses.baseAmount(cap.getContainers().get("ring")) + 1,
+                        "ring untouched by the delete");
 
                 info("ALL CHECKS PASSED");
                 System.out.println("ACCSLOTS SELFTEST PASSED");
-                step = 3;
+                step = 5;
                 server.halt(false);
             }
             default -> {}

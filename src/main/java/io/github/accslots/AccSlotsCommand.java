@@ -274,7 +274,7 @@ public final class AccSlotsCommand {
 
         Collection<? extends Entity> targets = EntityArgument.getEntities(ctx, "targets");
 
-        int changed = 0, missing = 0, living = 0;
+        int changed = 0, missing = 0, living = 0, returned = 0;
         LivingEntity last = null;
         AccessoriesContainer lastContainer = null;
 
@@ -291,7 +291,7 @@ public final class AccSlotsCommand {
                 case REMOVE -> current - amount;
                 case SET -> amount;
             };
-            SlotBonuses.setBonus(container, SlotBonuses.PLAYER_ID, desired);
+            returned += SlotBonuses.setBonus(container, SlotBonuses.PLAYER_ID, desired).returnedItems();
 
             changed++;
             last = livingEntity;
@@ -318,6 +318,8 @@ public final class AccSlotsCommand {
                     .append(" slots for " + n + " entities."), true);
         }
 
+        sendReturned(source, returned);
+
         if (missing > 0) {
             int m = missing;
             source.sendSystemMessage(Component.literal(m + " target(s) skipped: they don't have the '" + slot
@@ -330,7 +332,7 @@ public final class AccSlotsCommand {
         CommandSourceStack source = ctx.getSource();
         if (slot != null) requireSlot(source, slot);
 
-        int count = 0;
+        int count = 0, returned = 0;
         for (Entity entity : EntityArgument.getEntities(ctx, "targets")) {
             if (!(entity instanceof LivingEntity living)) continue;
             AccessoriesCapability capability = AccessoriesCapability.get(living);
@@ -339,7 +341,7 @@ public final class AccSlotsCommand {
             for (var entry : capability.getContainers().entrySet()) {
                 if (slot != null && !slot.equals(entry.getKey())) continue;
                 if (!entry.getValue().hasModifier(SlotBonuses.PLAYER_ID)) continue;
-                SlotBonuses.setBonus(entry.getValue(), SlotBonuses.PLAYER_ID, 0);
+                returned += SlotBonuses.setBonus(entry.getValue(), SlotBonuses.PLAYER_ID, 0).returnedItems();
             }
             count++;
         }
@@ -348,6 +350,7 @@ public final class AccSlotsCommand {
         String what = slot == null ? "all" : "'" + slot + "'";
         source.sendSuccess(() -> Component.literal("Removed " + what + " extra slots from /accslots for " + n + " entit" + (n == 1 ? "y" : "ies")
                 + ". (Server-wide bonuses from /accslots global still apply.)"), true);
+        sendReturned(source, returned);
         return n;
     }
 
@@ -418,11 +421,12 @@ public final class AccSlotsCommand {
         };
         data.set(slot, value);
 
-        int affected = syncAllOnline(server, slot);
+        OnlineSync sync = syncAllOnline(server, slot);
 
         source.sendSuccess(() -> Component.literal("Server-wide bonus for ").append(slotName(slot))
                 .append(" is now ").append(Component.literal(signed(value)).withStyle(ChatFormatting.GREEN))
-                .append(" (applied to " + affected + " online player(s); others get it when they join)."), true);
+                .append(" (applied to " + sync.affected() + " online player(s); others get it when they join)."), true);
+        sendReturned(source, sync.returned());
 
         boolean boundToPlayers = EntitySlotLoader.getEntitySlots(source.getLevel(), EntityType.PLAYER).containsKey(slot);
         if (!boundToPlayers) {
@@ -439,10 +443,11 @@ public final class AccSlotsCommand {
         if (slot == null) data.clear();
         else data.set(slot, 0);
 
-        syncAllOnline(server, slot);
+        OnlineSync sync = syncAllOnline(server, slot);
 
         String what = slot == null ? "All server-wide slot bonuses" : "The server-wide bonus for '" + slot + "'";
         source.sendSuccess(() -> Component.literal(what + " removed."), true);
+        sendReturned(source, sync.returned());
         return 1;
     }
 
@@ -459,15 +464,24 @@ public final class AccSlotsCommand {
         return bonuses.size();
     }
 
-    /** Re-applies global bonuses to everyone online; returns how many have the given slot (or all, if null). */
-    private static int syncAllOnline(MinecraftServer server, @Nullable String slot) {
+    private record OnlineSync(int affected, int returned) {}
+
+    /** Re-applies global bonuses to everyone online; counts players with the slot (or all, if null) and items handed back. */
+    private static OnlineSync syncAllOnline(MinecraftServer server, @Nullable String slot) {
         Map<String, Integer> bonuses = GlobalSlotData.get(server).bonuses();
-        int affected = 0;
+        int affected = 0, returned = 0;
         for (ServerPlayer player : server.getPlayerList().getPlayers()) {
-            SlotBonuses.syncGlobal(player, bonuses);
+            returned += SlotBonuses.syncGlobal(player, bonuses);
             if (slot == null || SlotBonuses.container(player, slot) != null) affected++;
         }
-        return affected;
+        return new OnlineSync(affected, returned);
+    }
+
+    /** Tells the source when items had to be taken out of slots that no longer exist. */
+    static void sendReturned(CommandSourceStack source, int returned) {
+        if (returned <= 0) return;
+        source.sendSuccess(() -> Component.literal("Returned " + returned + " item(s) from removed slots to their owner"
+                + " (inventory, or dropped at their feet if full).").withStyle(ChatFormatting.GRAY), true);
     }
 
     // ===================================================================== datapack-backed

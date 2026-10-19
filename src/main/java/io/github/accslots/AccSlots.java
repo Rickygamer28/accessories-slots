@@ -59,6 +59,7 @@ public final class AccSlots {
         server.tell(new TickTask(server.getTickCount() + 1, () -> {
             if (player.isRemoved() || player.hasDisconnected()) return;
             try {
+                SlotBonuses.returnItemsFromRemovedSlots(player);
                 SlotBonuses.syncGlobal(player, GlobalSlotData.get(server).bonuses());
             } catch (Exception e) {
                 LOGGER.error("[accslots] Failed to apply server-wide slot bonuses to {}", player.getGameProfile().getName(), e);

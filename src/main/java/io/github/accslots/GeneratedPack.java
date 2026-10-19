@@ -7,6 +7,7 @@ import com.google.gson.JsonObject;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.packs.repository.PackRepository;
 import net.minecraft.world.level.storage.LevelResource;
 
@@ -194,9 +195,16 @@ public final class GeneratedPack {
 
         server.reloadResources(selected)
                 .thenRunAsync(() -> {
+                    // Items in slot types that were just removed go back to their owners.
+                    int returned = 0;
+                    for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+                        returned += SlotBonuses.returnItemsFromRemovedSlots(player);
+                    }
                     // Newly bound slots start without the server-wide bonus; apply it now.
-                    SlotBonuses.syncGlobalAll(server);
+                    returned += SlotBonuses.syncGlobalAll(server);
+
                     source.sendSuccess(onDone, true);
+                    AccSlotsCommand.sendReturned(source, returned);
                 }, server)
                 .exceptionally(error -> {
                     AccSlots.LOGGER.error("[accslots] Datapack reload failed", error);
