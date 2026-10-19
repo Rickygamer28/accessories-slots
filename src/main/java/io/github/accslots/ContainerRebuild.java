@@ -21,6 +21,6 @@ public final class ContainerRebuild {
     }
 
     public static boolean isRebuilding() {
-        return DEPTH.get()[0] > 0;
+        return DEPTH.get()[0] > 0 || Boolean.getBoolean("accslots.selftest.nofix");
     }
 }
