@@ -5,6 +5,7 @@ import io.wispforest.accessories.api.AccessoriesContainer;
 import io.wispforest.accessories.api.slot.ExtraSlotTypeProperties;
 import io.wispforest.accessories.api.slot.SlotType;
 import io.wispforest.accessories.data.EntitySlotLoader;
+import io.wispforest.accessories.impl.AccessoriesHolderImpl;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -128,19 +129,26 @@ public final class SlotBonuses {
     }
 
     /**
-     * After a reload removed a slot type from an entity, Accessories keeps the old container around but no longer
-     * uses it. Give back anything still sitting in such containers. Returns the number of item stacks returned.
+     * After a reload removes a slot type from an entity, Accessories keeps the old container on it (until the
+     * player relogs) even though the slot no longer exists. Give back anything still in such containers, then drop
+     * the leftover containers. Returns the number of item stacks returned.
      */
     public static int returnItemsFromRemovedSlots(LivingEntity entity) {
         AccessoriesCapability capability = AccessoriesCapability.get(entity);
         if (capability == null || !(capability.getHolder() instanceof HolderAccess holder)) return 0;
 
         Map<String, SlotType> valid = EntitySlotLoader.getEntitySlots(entity);
+        Map<String, AccessoriesContainer> all = holder.accslots$allContainers();
+
+        List<String> removed = all.keySet().stream().filter(name -> !valid.containsKey(name)).toList();
+        if (removed.isEmpty()) return 0;
+
         int returned = 0;
-        for (var entry : holder.accslots$allContainers().entrySet()) {
-            if (valid.containsKey(entry.getKey())) continue;
-            returned += returnItemsFrom(entry.getValue(), 0);
+        for (String name : removed) {
+            returned += returnItemsFrom(all.get(name), 0);
+            all.remove(name);
         }
+        if (holder instanceof AccessoriesHolderImpl impl) impl.setValidTypes(valid.keySet());
         return returned;
     }
 

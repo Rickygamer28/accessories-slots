@@ -138,11 +138,10 @@ public final class SelfTest {
                     check(tick - reloadWaitStart < 20 * 60, "delete reload finished within 60s");
                     return;
                 }
-                AccessoriesCapability cap = AccessoriesCapability.get(player);
-                check(!cap.getContainers().containsKey("selftest_slot"), "deleted slot is gone from the player");
-
                 // Same call the reload callback makes for every online player (this test player isn't in the player list).
                 int returned = SlotBonuses.returnItemsFromRemovedSlots(player);
+                AccessoriesCapability cap = AccessoriesCapability.get(player);
+                check(!cap.getContainers().containsKey("selftest_slot"), "deleted slot is gone from the player");
                 check(returned == 1, "1 item returned from the deleted slot (" + returned + ")");
                 check(player.getInventory().countItem(Items.STICK) == 1, "stick is in the player's inventory");
                 check(SlotBonuses.returnItemsFromRemovedSlots(player) == 0, "nothing returned twice");
